@@ -10,6 +10,10 @@
     "author": "Creu Blanca,Odoo Community Association (OCA)",
     "website": "https://github.com/OCA/social",
     "depends": ["mail"],
-    "data": ["views/mail_activity_views.xml"],
-    "qweb": ["static/src/xml/activity.xml"],
+    "data": [
+        "views/mail_activity_views.xml",
+    ],
+    "qweb": [
+        "static/src/xml/activity.xml",
+    ],
 }

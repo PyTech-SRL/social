@@ -10,4 +10,10 @@
     "license": "AGPL-3",
     "installable": True,
     "depends": ["mail"],
+    "data": [
+        "security/mail_activity_reply_creator.xml",
+    ],
+    "qweb": [
+        "static/src/xml/*",
+    ],
 }

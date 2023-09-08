@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+    <t t-inherit="mail.Activity" t-inherit-mode="extension" owl="1">
+        <xpath expr="//button[hasclass('o_Activity_editButton')]" position="before">
+
+            <t t-log="activity.env.session" />
+            <!-- <t t-set="can_use_action" t-value="activity.env.session.user_has_group('mail_activity_reply_creator.group_restrict_mail_actions')"/> -->
+        </xpath>
+        <xpath expr="//button[hasclass('o_Activity_editButton')]" position="attributes">
+            <attribute name="t-if">
+                activity.messagingCurrentPartner.user.id == activity.creator.id
+            </attribute>
+        </xpath>
+
+    </t>
+</templates>
