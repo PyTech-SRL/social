@@ -3,8 +3,9 @@
 # License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
 
 import logging
+import re
 import uuid
-from base64 import b64encode
+from base64 import b64decode, b64encode
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 
@@ -115,46 +116,64 @@ class IrMailServer(models.Model):
         image_embedding_method = self.env.company.image_embedding_method
         root = fromstring(html_body)
         fileparts = []
-        # Limit results to only internal resources to avoid malicious external
-        # image injections
-        for img in root.xpath(
-            ".//img[starts-with(@src, '%s')]"
-            "| .//img[starts-with(@src, '/')]" % (base_url)
-        ):
+        b64_prefix = "data:image/"
+        xpath_patterns = " | ".join(
+            [
+                ".//img[starts-with(@src, '%(base_url)s')]",
+                ".//img[starts-with(@src, '/')]",
+                ".//img[starts-with(@src, '%(b64_prefix)s')]",
+            ]
+        ) % {
+            "base_url": base_url,
+            "b64_prefix": b64_prefix,
+        }
+        for img in root.xpath(xpath_patterns):
             image_path = img.get("src")
-            if image_path.startswith("/"):
-                image_path = base_url + image_path
-            try:
-                response = requests.get(image_path, timeout=10)
-                _logger.debug("Fetching image from %s", image_path)
-                if response.status_code == 200:
-                    image_content = response.content
-                    filepart = MIMEImage(image_content)
-                    if image_embedding_method == "data":
-                        raw_content = filepart.get_payload(decode=True)
-                        base_64_content = b64encode(raw_content).decode("utf-8")
-                        mimetype = filepart.get_content_type()
-                        img.set("src", f"data:{mimetype};base64,{base_64_content}")
-                    elif image_embedding_method == "cid":
-                        cid = uuid.uuid4().hex
-                        # convert cid to rfc2047 encoding
-                        filename_encoded = "=?utf-8?b?%s?=" % b64encode(
-                            cid.encode("utf-8")
-                        ).decode("utf-8")
-                        filepart.add_header("Content-ID", f"<{cid}>")
-                        filepart.add_header(
-                            "Content-Disposition",
-                            "inline",
-                            filename=filename_encoded,
+            image_content: bytes = None
+
+            if image_path.startswith(b64_prefix):
+                # we need to keep just the data part
+                image_b64_data = re.sub(fr"^{b64_prefix}\w+?;base64,", "", image_path)
+                image_content = b64decode(image_b64_data)
+            else:
+                if image_path.startswith("/"):
+                    image_path = base_url + image_path
+                try:
+                    response = requests.get(image_path, timeout=10)
+                    _logger.debug("Fetching image from %s", image_path)
+                    if response.status_code == 200:
+                        image_content = response.content
+                    else:
+                        _logger.warning(
+                            "Could not get %s: HTTP status code %s",
+                            img.get("src"),
+                            response.status_code,
                         )
-                        img.set("src", f"cid:{cid}")
-                        fileparts.append(filepart)
-                else:
-                    _logger.warning(
-                        "Could not get %s: HTTP status code %s",
-                        img.get("src"),
-                        response.status_code,
-                    )
-            except Exception as e:
-                _logger.warning("Could not get %s: %s", img.get("src"), str(e))
+                except Exception as e:
+                    _logger.warning("Could not get %s: %s", img.get("src"), str(e))
+
+            if not image_content:
+                continue
+
+            filepart = MIMEImage(image_content)
+            if image_embedding_method == "data":
+                raw_content = filepart.get_payload(decode=True)
+                base_64_content = b64encode(raw_content).decode("utf-8")
+                mimetype = filepart.get_content_type()
+                img.set("src", f"data:{mimetype};base64,{base_64_content}")
+            elif image_embedding_method == "cid":
+                cid = uuid.uuid4().hex
+                # convert cid to rfc2047 encoding
+                filename_encoded = "=?utf-8?b?%s?=" % b64encode(
+                    cid.encode("utf-8")
+                ).decode("utf-8")
+                filepart.add_header("Content-ID", f"<{cid}>")
+                filepart.add_header(
+                    "Content-Disposition",
+                    "inline",
+                    filename=filename_encoded,
+                )
+                img.set("src", f"cid:{cid}")
+                fileparts.append(filepart)
+
         return tostring(root, encoding="unicode"), fileparts
